@@ -126,6 +126,15 @@ When a worker fails and recovers, or when a pattern emerges:
 
 This prevents future workers from hitting the same issue.
 
+## Minimizing Dead Time
+
+The biggest risk is the gap between a worker finishing and the orchestrator noticing. Mitigations:
+
+1. **Short cron interval** — 10 minutes, not 30. The dead gap equals at most one interval.
+2. **Mark BLOCKED tasks** — Prefix blocked items with `BLOCKED:` so the orchestrator skips them and moves to the next task instead of stalling.
+3. **Verify spawn** — After spawning, run `sleep 2 && pgrep -f 'codex'` to confirm the worker actually started.
+4. **Skip-not-block** — If a task depends on an external fix (API access, human input), mark it BLOCKED and let the orchestrator proceed to independent tasks.
+
 ## Anti-Patterns
 
 - **Reporter-only cron:** A cron that checks status but never spawns work. Useless.
