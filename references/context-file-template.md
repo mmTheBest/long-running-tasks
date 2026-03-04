@@ -1,9 +1,9 @@
-# CLAUDE.md Template
+# Project Context File Template
 
-Create this in the project root so cold-start agents have context.
+Create this file in the project root (commonly named `CLAUDE.md` or `AGENTS.md`) so cold-start agents have the context they need without exploring the codebase.
 
 ```markdown
-# Project Name
+# [Project Name]
 
 ## Stack
 - Language, framework, major dependencies
@@ -18,25 +18,25 @@ Create this in the project root so cold-start agents have context.
 ## Commands
 \`\`\`bash
 # Run unit tests
-command here
+<command>
 
-# Run all tests (including integration)
-command here
+# Run all tests
+<command>
 
 # Lint / type check
-command here
+<command>
 \`\`\`
 
 ## Commit Convention
-- What format to use for commit messages
+<format description>
 
 ## Current Phase
-What's being worked on now. What's next.
+What's being worked on now. Link to TODO.md for details.
 
 ## Environment
 - Required env vars and where they're set
-- Any setup steps (venv, API keys, etc.)
-\`\`\`
+- Setup steps (venv activation, config files, etc.)
+- Do not include secrets — reference where they're stored
 ```
 
 ## Guidelines
@@ -44,4 +44,4 @@ What's being worked on now. What's next.
 - Keep under 100 lines — agents read this on every cold start
 - Include runnable commands, not just descriptions
 - Update when phases change or architecture shifts
-- Don't include secrets — reference where they're stored (e.g., "API key in ~/.zshrc")
+- Reference secret locations (e.g., "API key in ~/.zshrc"), never inline secrets
