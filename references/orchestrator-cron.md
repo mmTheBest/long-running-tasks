@@ -99,17 +99,17 @@ CRITICAL RULES:
 Replace `[AGENT_COMMAND]` with whichever coding agent is available:
 
 ```bash
-# Claude Code
-claude --dangerously-skip-permissions
+# Claude Code (interactive approval — recommended for first runs)
+claude
 
-# Codex
-codex --yolo exec
+# Codex (sandboxed by default)
+codex exec
 
 # Any agent that accepts a prompt argument
 <agent-binary> <flags>
 ```
 
-Choose based on your needs: agents with network access for tasks requiring git push or API calls; sandboxed agents for pure implementation work.
+> **Security note:** Some agents offer flags that bypass permission checks (e.g., `--dangerously-skip-permissions`, `--yolo`). Do not use these unless you have validated the worker prompts and TODO.md contents in a test repo first. Start with default (safe) mode and only relax permissions after you trust the pipeline.
 
 ## Shutdown
 

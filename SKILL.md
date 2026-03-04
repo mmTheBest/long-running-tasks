@@ -80,12 +80,14 @@ Read `references/orchestrator-cron.md` for the full cron configuration, prompt t
 
 ### 4. Spawn the first worker manually
 
-Start the first task yourself. The orchestrator takes over after this:
+Start the first task yourself in safe (default) mode. The orchestrator takes over after this:
 
 ```bash
 cd /path/to/project && nohup <agent-command> '<task prompt>' > /tmp/lrt-<project>-worker.log 2>&1 &
 echo $! > /tmp/lrt-<project>-worker.pid
 ```
+
+Use the agent's default permission mode for initial runs. See `references/orchestrator-cron.md` for agent command examples and security guidance.
 
 ## Worker Rules
 
@@ -116,6 +118,15 @@ The orchestrator still runs on schedule but reports "paused" instead of spawning
 - Only send a substantive report when there's a NEW commit
 - Include diff stats (`git diff --stat HEAD~1`), not a full inventory
 - If nothing changed, one line: "no new commits since [hash]"
+
+## Security
+
+- **Sandbox first.** Run the orchestrator + worker pipeline in a test repo before pointing it at real projects. Validate that workers do what you expect.
+- **Credential scoping.** Workers that commit and push need git credentials. Use a dedicated deploy key or machine account with minimum write access to the target repo. Never use your personal token with broad org access.
+- **No secrets in context files.** Project context files (CLAUDE.md, TODO.md) must not contain API keys, tokens, or passwords. Reference where secrets are stored (e.g., "API key in ~/.zshrc") — never inline them.
+- **Permission-bypass flags.** Agent CLIs often offer flags that skip safety prompts. Do not use these until you've verified the pipeline in safe mode. See `references/orchestrator-cron.md` for details.
+- **Review before auto-push.** Consider disabling automatic `git push` in worker prompts during initial runs. Let workers commit locally; review the commits manually, then push. Enable auto-push only after you trust the output.
+- **PID kill safety.** The orchestrator may kill a stalled worker by PID. Use unique project slugs (see File Convention) to avoid collisions with unrelated processes.
 
 ## Anti-Patterns
 
