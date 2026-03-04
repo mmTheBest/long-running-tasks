@@ -18,8 +18,7 @@ STEPS:
 5. Fix any test failures before proceeding
 6. Update TODO.md — check off the completed task: change "- [ ]" to "- [x]"
 7. Commit and push using the project's commit convention
-8. Remove /tmp/lrt-worker.pid
-9. Run: openclaw system event --text "Done: [BRIEF_SUMMARY]" --mode now
+8. Run: openclaw system event --text "Done: [BRIEF_SUMMARY]" --mode now
 
 RULES:
 - Do NOT skip tests. If tests fail, fix them before committing.
