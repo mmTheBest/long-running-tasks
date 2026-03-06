@@ -11,16 +11,16 @@ AI coding agents (Claude Code, Codex, Cursor, etc.) are **one-shot**: they finis
 
 Worse, agents doing real work (data processing, ML training, large builds) get **silently killed** by platform timeouts and never recover. You come back to find zero progress and no error message.
 
-## What This Solves
+## Why Use This
 
-| Pain Point | How It's Fixed |
-|------------|----------------|
-| **Silent stalls** — agent dies mid-task, nobody notices for hours | Multi-signal stall detection (commits + file activity + CPU usage) with automatic respawn |
-| **Kill loops** — orchestrator falsely kills working agents | Configurable thresholds (30-120 min) + file activity checks prevent false positives |
-| **Platform timeouts** — OpenClaw's default 600s timeout kills data/ML work | Documented system config (`agents.defaults.timeoutSeconds`) with per-workload recommendations |
-| **No continuation** — one-shot agents finish and nothing starts the next task | Cron orchestrator reads TODO.md, spawns next task automatically |
-| **Context bloat** — long sessions overflow, degrade, crash | Fresh cold-start worker per task with structured context files |
-| **Manual babysitting** — checking "is it done yet?" every 30 minutes | Progress reporting via commit diffs, delivered to Discord/Slack/Telegram |
+| Without orchestration | With long-running-tasks |
+|-----------------------|-------------------------|
+| Agent finishes a task, exits — nothing starts the next one | Orchestrator reads TODO.md and spawns the next task automatically |
+| Agent dies mid-task, nobody notices for hours | Multi-signal stall detection (commits + file activity + CPU) with automatic respawn |
+| Platform timeouts silently kill data/ML work | System config guidance + per-workload timeout recommendations |
+| Orchestrator falsely kills agents doing real work (downloads, training) | Configurable thresholds (30-120 min) + file activity checks prevent false kills |
+| Long sessions overflow and degrade over time | Fresh cold-start worker per task — no context bloat |
+| You keep checking "is it done yet?" | Progress reports delivered to Discord/Slack/Telegram via commit diffs |
 
 ## How It Works
 
@@ -94,7 +94,7 @@ See [SKILL.md](SKILL.md) for the full setup guide.
 
 ## Battle-Tested
 
-This skill was developed and refined while running a 11-step computational biology pipeline (gene regulatory network inference) that processes 16GB of single-cell RNA-seq data. The multi-signal stall detection and system timeout fixes came directly from debugging real silent stalls in production.
+Built for autonomous runs that last 24+ hours across 10+ sequential tasks — not toy demos. The multi-signal stall detection, kill-loop prevention, and system timeout guidance all came from real production failures where agents went silent for hours with no recovery. If your workflow involves data pipelines, long builds, or multi-step experiments that need to run overnight without hand-holding, this is what it's designed for.
 
 ## Requirements
 
