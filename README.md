@@ -1,43 +1,59 @@
 # Long-Running Tasks
 
-**Autonomous multi-phase development with AI coding agents.**
+**Autonomous multi-phase development with AI coding agents — without the silent stalls.**
 
 [![ClawHub](https://img.shields.io/badge/ClawHub-long--running--tasks-blue)](https://clawhub.ai/skills/long-running-tasks)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ## The Problem
 
-AI coding agents (Claude Code, Codex, Cursor, etc.) are **one-shot**: they complete a task, exit, and nothing spawns the next one. If your project has 15 tasks across 3 phases, you're manually kicking off each step — often hours after the last one quietly finished.
+AI coding agents (Claude Code, Codex, Cursor, etc.) are **one-shot**: they finish a task, exit, and nothing spawns the next one. Your project has 15 tasks? You're manually kicking off each step — often hours after the last one quietly finished at 3am.
 
-**Long-running tasks** solves this with a simple pattern: a cron-based orchestrator that detects when a worker finishes and automatically spawns the next task.
+Worse, agents doing real work (data processing, ML training, large builds) get **silently killed** by platform timeouts and never recover. You come back to find zero progress and no error message.
+
+## What This Solves
+
+| Pain Point | How It's Fixed |
+|------------|----------------|
+| **Silent stalls** — agent dies mid-task, nobody notices for hours | Multi-signal stall detection (commits + file activity + CPU usage) with automatic respawn |
+| **Kill loops** — orchestrator falsely kills working agents | Configurable thresholds (30-120 min) + file activity checks prevent false positives |
+| **Platform timeouts** — OpenClaw's default 600s timeout kills data/ML work | Documented system config (`agents.defaults.timeoutSeconds`) with per-workload recommendations |
+| **No continuation** — one-shot agents finish and nothing starts the next task | Cron orchestrator reads TODO.md, spawns next task automatically |
+| **Context bloat** — long sessions overflow, degrade, crash | Fresh cold-start worker per task with structured context files |
+| **Manual babysitting** — checking "is it done yet?" every 30 minutes | Progress reporting via commit diffs, delivered to Discord/Slack/Telegram |
 
 ## How It Works
 
 ```
 Orchestrator (cron, every 10-30 min)
   │
-  ├─ Worker alive?  → report status
-  └─ Worker done?   → read TODO.md → spawn next task
-                          │
-                          ▼
-                     Worker (AI agent session)
-                       - Read project context
-                       - Implement one task
-                       - Run tests
-                       - Commit + push
-                       - Exit
+  ├─ Worker alive + active?  → report status, exit
+  ├─ Worker alive + stalled? → kill, respawn next task
+  ├─ Worker dead?            → respawn next task
+  └─ All tasks done?         → report complete
+                                    │
+                                    ▼
+                               Worker (AI agent session)
+                                 - Cold-start: read CLAUDE.md + TODO.md
+                                 - Implement one task
+                                 - Commit progress every 20-30 min
+                                 - Run tests, push, signal completion
+                                 - Exit cleanly
 ```
 
-No polling loops. No manual intervention. Work continues autonomously until the task queue is empty.
+No polling loops. No manual intervention. Work continues autonomously until the task queue is empty or a blocker is hit.
 
 ## Features
 
-- **Crash recovery** — dead worker + no commit → respawn same task
-- **Stall detection** — worker alive but no progress for 30 min → kill and respawn
-- **Pause/resume** — drop a `.pause` file to stop spawning without disabling the cron
+- **Multi-signal stall detection** — checks commit age + file activity + process CPU, not just commits (prevents kill-loops on data-heavy tasks)
+- **Configurable thresholds** — 30 min for code, 60-90 for data, 120 for ML training
+- **Crash recovery** — dead worker + unchecked task → automatic respawn
+- **Pause/resume** — `.pause` file stops spawning without disabling the cron
+- **Cold-start workers** — fresh context per task, no session bloat
+- **Intermediate commits** — workers commit every 20-30 min so progress is never lost
 - **Multi-project support** — unique file slugs prevent collisions
-- **Progress reporting** — commit-based diffs, no parrot status updates
-- **Security guidance** — credential scoping, sandbox-first, no secrets in context
+- **Progress reporting** — commit-based diffs delivered to your channel
+- **System config guidance** — documents the platform timeout fix most users miss
 
 ## Installation
 
@@ -49,22 +65,36 @@ clawhub install long-running-tasks
 
 Or copy the skill files directly into your OpenClaw workspace.
 
+### Prerequisites
+
+Increase the OpenClaw embedded run timeout (default 600s is too short for real work):
+
+```bash
+openclaw config set agents.defaults.timeoutSeconds 1800  # 30 min
+openclaw gateway restart
+```
+
 ## Quick Start
 
 1. Create `TODO.md` in your project root with a structured task queue
-2. Create a project context file (`CLAUDE.md`) for cold-start agents
-3. Set up the orchestrator cron using OpenClaw's cron tool
-4. Spawn the first worker manually — the orchestrator takes over
+2. Create `CLAUDE.md` with project context + the progress protocol
+3. Set up the orchestrator cron (see [orchestrator-cron.md](references/orchestrator-cron.md))
+4. Spawn the first worker — the orchestrator handles everything after that
 
-See [SKILL.md](SKILL.md) for the full setup guide, worker rules, and security recommendations.
+See [SKILL.md](SKILL.md) for the full setup guide.
 
 ## Use Cases
 
-- **Feature development** — break a feature into tasks, let agents work through the night
+- **Feature development** — break features into tasks, let agents work overnight
+- **Data pipelines** — ETL, preprocessing, model training across multiple stages
 - **Refactoring** — systematic codebase changes across many files
+- **Research experiments** — computational experiments with sequential dependencies
 - **Test coverage** — generate tests module by module
-- **Documentation** — auto-generate docs for each component
 - **Migrations** — database or API migrations with multiple steps
+
+## Battle-Tested
+
+This skill was developed and refined while running a 11-step computational biology pipeline (gene regulatory network inference) that processes 16GB of single-cell RNA-seq data. The multi-signal stall detection and system timeout fixes came directly from debugging real silent stalls in production.
 
 ## Requirements
 
@@ -74,14 +104,14 @@ See [SKILL.md](SKILL.md) for the full setup guide, worker rules, and security re
 
 ## Documentation
 
-- [SKILL.md](SKILL.md) — Full guide (architecture, setup, worker rules, security)
-- [references/orchestrator-cron.md](references/orchestrator-cron.md) — Cron configuration and prompt template
-- [references/worker-prompt-template.md](references/worker-prompt-template.md) — Worker prompt template
-- [assets/context-file-template.md](assets/context-file-template.md) — Project context file template
+- [SKILL.md](SKILL.md) — Full guide (architecture, setup, stall detection, worker rules, security)
+- [references/orchestrator-cron.md](references/orchestrator-cron.md) — Cron config + prompt template with multi-signal detection
+- [references/worker-prompt-template.md](references/worker-prompt-template.md) — Worker prompt template with intermediate commit rules
+- [assets/context-file-template.md](assets/context-file-template.md) — Project context file template with progress protocol
 
 ## Keywords
 
-AI agents, autonomous coding, background automation, Claude Code, Codex, cron orchestration, long-running tasks, multi-phase development, OpenClaw skill, task queue, unattended development
+AI agents, autonomous coding, background automation, Claude Code, Codex, cron orchestration, long-running tasks, multi-phase development, OpenClaw skill, task queue, unattended development, stall detection, crash recovery, silent stalls, kill loop prevention, data pipeline automation
 
 ## License
 
