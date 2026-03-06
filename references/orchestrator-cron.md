@@ -42,6 +42,7 @@ You are a development orchestrator for [PROJECT_NAME] at [PROJECT_PATH].
 LOCK_FILE=/tmp/lrt-[PROJECT_SLUG]-orchestrator.lock
 PID_FILE=/tmp/lrt-[PROJECT_SLUG]-worker.pid
 LAST_COMMIT_FILE=/tmp/lrt-[PROJECT_SLUG]-last-commit
+STALL_THRESHOLD=60  # minutes — increase for data/ML tasks (90-120)
 
 Step 1 — Acquire lock:
   If $LOCK_FILE exists:
@@ -57,8 +58,13 @@ Step 2 — Check for running worker:
     - If PID is alive:
       - Get latest commit: cd [PROJECT_PATH] && git log --oneline -1
       - Get commit timestamp: git log -1 --format=%ct HEAD
-      - If commit is < 30 minutes old: report one-line status ("worker active, last commit: <hash> <age>min ago"), exit.
-      - If commit is >= 30 minutes old: worker is stalled. Kill it (kill $PID), remove $PID_FILE. Include "killed stalled worker" in report. Continue to Step 3.
+      - Calculate commit age in minutes.
+      - If commit age < $STALL_THRESHOLD: report one-line status ("worker active, last commit: <hash> <age>min ago"), exit.
+      - If commit age >= $STALL_THRESHOLD, check for file activity:
+        - Count recently modified output files: find [PROJECT_PATH] -newer $LAST_COMMIT_FILE -type f -not -path '*/.git/*' -not -path '*/.venv/*' -not -path '*/node_modules/*' 2>/dev/null | wc -l
+        - Check process CPU usage: ps -o cputime= -p $PID 2>/dev/null
+        - If recent files exist OR CPU time is growing: report "worker active (no commit in <age>min but producing output files)", exit.
+        - If NO recent files AND no CPU activity: worker is stalled. Kill it (kill $PID), remove $PID_FILE. Include "killed stalled worker (<age>min idle, no file activity)" in report. Continue to Step 3.
     - If PID is dead: remove $PID_FILE. Continue to Step 3.
 
 Step 3 — Check pause:
@@ -78,7 +84,8 @@ Step 5 — Spawn worker:
   The task prompt must include:
   - "Read [CONTEXT_FILE] and TODO.md for project context."
   - The specific task description copied from TODO.md.
-  - "Run tests before committing. Fix failures before proceeding."
+  - "IMPORTANT: Commit intermediate progress every 20-30 minutes. Do NOT wait until the task is fully done. The orchestrator monitors commit timestamps to detect stalls."
+  - "Run tests before final commit. Fix failures before proceeding."
   - "Check off the completed item in TODO.md."
   - "Commit and push using the project's commit convention."
   - "Run: openclaw system event --text 'Done: [BRIEF_SUMMARY]' --mode now"
@@ -92,7 +99,22 @@ CRITICAL RULES:
 - Always spawn work if no worker is running and unchecked tasks remain. Never just report.
 - Lock is auto-released by the EXIT trap. Do not skip the trap setup.
 - Keep reports under 80 words.
+- Use multi-signal stall detection (commit age + file activity + CPU). Commit age alone causes false kills on data-heavy tasks.
+- Default stall threshold is 60 minutes. Use 90-120 for data/ML/download-heavy tasks.
 ```
+
+## Stall Threshold Guidelines
+
+The stall threshold determines how long a worker can go without a commit before being killed. Setting it too low causes a **kill-loop**: the orchestrator kills a working process, spawns a replacement, which also gets killed before it can finish.
+
+| Workload | Recommended threshold |
+|----------|-----------------------|
+| Code edits, tests, linting | 30 min |
+| Builds, API calls, installs | 45 min |
+| Data downloads, file conversion | 60-90 min |
+| ML training, heavy compute | 90-120 min |
+
+**Always combine with file activity checks.** A worker writing output files to `data/`, `results/`, or `output/` is not stalled — even if it hasn't committed yet.
 
 ## Agent Command Examples
 
@@ -120,4 +142,4 @@ touch [PROJECT_PATH]/.pause     # pause
 rm [PROJECT_PATH]/.pause        # resume
 ```
 
-Or disable the cron job: `cron` tool with `action: "update"`, `patch: { "enabled": false }`.
+Or disable the cron job: `cron` tool with `action: "edit"`, set `--disabled`.

@@ -30,6 +30,13 @@ Create this file in the project root (commonly named `CLAUDE.md` or `AGENTS.md`)
 ## Commit Convention
 <format description>
 
+## Progress Protocol
+**IMPORTANT: Commit intermediate progress every 20-30 minutes.**
+Do NOT wait until the entire task is done to commit.
+The orchestrator monitors commit timestamps to detect stalls —
+if you go too long without committing and no new output files appear,
+you will be killed and respawned.
+
 ## Current Phase
 What's being worked on now. Link to TODO.md for details.
 
@@ -45,3 +52,4 @@ What's being worked on now. Link to TODO.md for details.
 - Include runnable commands, not just descriptions
 - Update when phases change or architecture shifts
 - Reference secret locations (e.g., "API key in ~/.zshrc"), never inline secrets
+- **Always include the Progress Protocol section** — without it, workers won't know to commit incrementally and the orchestrator may false-kill them

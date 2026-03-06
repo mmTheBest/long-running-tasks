@@ -19,18 +19,43 @@ Orchestrator (cron, every 10-30 min)
   ├─ Stale lock?         → clean up, continue
   ├─ Live lock?          → another orchestrator running, exit
   ├─ .pause file?        → skip spawning, report paused
-  ├─ Worker PID alive?   → check for stall, report status
+  ├─ Worker PID alive?   → check for stall (multi-signal), report status
   └─ No worker?          → read TODO.md → spawn next task
                                │
                                ▼
                           Worker (coding agent session)
                             - Read project context + TODO.md
                             - Implement one task
-                            - Run tests
-                            - Commit + push
+                            - Commit intermediate progress every 20-30 min
+                            - Commit + push final result
                             - Update TODO.md
                             - Exit
 ```
+
+## Prerequisites: System Configuration
+
+Before using this skill, ensure the OpenClaw embedded run timeout is sufficient for your tasks:
+
+```bash
+# Check current timeout (default is 600s / 10 min — too short for most real work)
+openclaw config get agents.defaults.timeoutSeconds
+
+# Set to 30 minutes (recommended minimum for data/ML/build tasks)
+openclaw config set agents.defaults.timeoutSeconds 1800
+
+# Restart gateway to apply
+openclaw gateway restart
+```
+
+**Why this matters:** OpenClaw's embedded run timeout limits how long a single agent turn can execute. The default 600s is designed for conversational Q&A. Autonomous workers doing downloads, builds, data processing, or model training routinely need 15-60+ minutes per turn. If the timeout is too short, the agent gets killed mid-work, fails over through model profiles, and eventually goes permanently silent with no notification. This is the #1 cause of "silent stalls" in long-running tasks.
+
+**Recommended values:**
+| Workload | Timeout |
+|----------|---------|
+| Pure code changes, tests | 600s (default) |
+| Builds, installs, API calls | 1200s (20 min) |
+| Data processing, ML training, large downloads | 1800s (30 min) |
+| Heavy compute (multi-hour transforms) | 3600s (60 min) |
 
 ## File Convention
 
@@ -70,6 +95,13 @@ Tasks prefixed with `BLOCKED:` are skipped by the orchestrator.
 
 Cold-start context for agents (commonly named `CLAUDE.md` or `AGENTS.md`). Include: stack, architecture, runnable commands, current phase, environment setup. Keep under 100 lines.
 
+**Must include these lines** (prevents the kill-loop anti-pattern):
+```
+IMPORTANT: Commit intermediate progress every 20-30 minutes.
+Do NOT wait until the entire task is done to commit.
+The orchestrator monitors commit timestamps to detect stalls.
+```
+
 See `assets/context-file-template.md` for a starter template to copy into your project.
 
 ### 3. Set up the orchestrator cron
@@ -95,13 +127,34 @@ Every worker prompt must include these instructions. See `references/worker-prom
 
 1. **Read context first** — project context file + TODO.md
 2. **One task only** — pick the first unchecked, non-BLOCKED item
-3. **Test before commit** — run the test suite; fix failures before proceeding
-4. **Update TODO.md** — check off the completed item
-5. **Commit + push** — use the project's commit convention
-6. **Signal completion** — `openclaw system event --text "Done: <summary>" --mode now`
-7. **Never exit silently** — if blocked, commit what you have with a note explaining why
+3. **Commit early and often** — commit intermediate progress every 20-30 minutes, not just at the end (prevents false stall detection)
+4. **Test before final commit** — run the test suite; fix failures before proceeding
+5. **Update TODO.md** — check off the completed item
+6. **Commit + push** — use the project's commit convention
+7. **Signal completion** — `openclaw system event --text "Done: <summary>" --mode now`
+8. **Never exit silently** — if blocked, commit what you have with a note explaining why
 
 Note: worker self-cleanup of the PID file is best-effort. The orchestrator is the real safety net — it checks whether the PID is still alive regardless of whether the file was cleaned up.
+
+## Stall Detection (Multi-Signal)
+
+The orchestrator must use **multiple signals** to determine if a worker is stalled. Commit age alone causes false positives — workers doing downloads, data processing, or model training may legitimately go 30+ minutes without committing.
+
+**Signals to check (in order):**
+1. **Commit age** — `git log -1 --format=%ct HEAD` vs current time
+2. **File activity** — `find <project> -newer <last-commit-file> -type f -not -path '*/.git/*' -not -path '*/.venv/*' 2>/dev/null | wc -l` (new output files = active work)
+3. **Process activity** — `ps -o rss,cputime -p <PID>` (growing RSS or CPU time = doing work)
+4. **Log activity** — `stat -f %m /tmp/lrt-<project>-worker.log` (recent log writes)
+
+**Stall thresholds:**
+
+| Task type | Threshold | Rationale |
+|-----------|-----------|-----------|
+| Code changes, tests | 30 min | Fast cycle, should commit often |
+| Data processing, downloads | 60-90 min | I/O-heavy, legitimate long waits |
+| ML training, heavy compute | 120 min | May run hours between checkpoints |
+
+**Default: 60 minutes.** Only declare a stall if ALL signals are inactive beyond the threshold. The old 30-minute commit-only check caused a kill-loop where workers were repeatedly spawned and killed for data-heavy tasks.
 
 ## Pause and Resume
 
@@ -136,3 +189,7 @@ The orchestrator still runs on schedule but reports "paused" instead of spawning
 - **No PID tracking** — `pgrep` pattern matching hits false positives from unrelated processes
 - **Shared `/tmp` paths** — running two projects without unique slugs causes PID/lock collisions
 - **Polling in main session** — don't `process poll` in a loop; let the cron handle scheduling
+- **Commit-only stall detection** — checking only commit age causes kill-loops on data-heavy tasks; always combine with file activity and process checks
+- **Short stall thresholds** — 30 minutes is too aggressive for anything beyond pure code edits; use 60+ for data/ML work
+- **No intermediate commits** — workers that only commit at the end look stalled for the entire duration; context files must instruct workers to commit every 20-30 min
+- **Low embedded run timeout** — the default OpenClaw timeout (600s) kills workers mid-execution on data tasks; increase `agents.defaults.timeoutSeconds` before starting
